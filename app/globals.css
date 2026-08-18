@@ -1,0 +1,666 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Palette. Light is the base definition; dark only redefines tokens, so no
+   colour has its only definition inside a media query.
+   ------------------------------------------------------------------------ */
+:root {
+  --bg: #f2f2f7; /* systemGroupedBackground */
+  --surface: 255 255 255;
+  --surface-alpha: 0.86;
+  --elevated: #ffffff;
+  --text: #1c1c1e;
+  --text-2: #56565c;
+  --text-3: #8a8a8e;
+  --separator: rgba(60, 60, 67, 0.14);
+  --hairline: rgba(60, 60, 67, 0.08);
+
+  --up: #1a9c53;
+  --up-soft: rgba(26, 156, 83, 0.12);
+  --down: #d7263d;
+  --down-soft: rgba(215, 38, 61, 0.12);
+  --accent: #0a7cff;
+  --accent-soft: rgba(10, 124, 255, 0.12);
+  --warn: #c98a00;
+  --warn-soft: rgba(201, 138, 0, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --radius: 18px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: 28 28 30;
+    --surface-alpha: 0.78;
+    --elevated: #1c1c1e;
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #6e6e73;
+    --separator: rgba(84, 84, 88, 0.45);
+    --hairline: rgba(84, 84, 88, 0.24);
+
+    --up: #30d158;
+    --up-soft: rgba(48, 209, 88, 0.16);
+    --down: #ff453a;
+    --down-soft: rgba(255, 69, 58, 0.16);
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.18);
+    --warn: #ffd60a;
+    --warn-soft: rgba(255, 214, 10, 0.16);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elevated: var(--elevated);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-accent: var(--accent);
+  --color-warn: var(--warn);
+}
+
+html {
+  /* Dynamic Type: everything below is sized in rem so the layout scales with it */
+  font: 100% / 1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
+    "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------------------
+   Typography. Tracking is size specific: large text tightens, small text opens
+   up slightly. One fixed letter-spacing would be wrong at one end or the other.
+   ------------------------------------------------------------------------ */
+.t-display {
+  font-size: clamp(1.75rem, 3.2vw, 2.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.028em;
+  font-weight: 700;
+}
+.t-hero {
+  font-size: clamp(2.4rem, 6vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.038em;
+  font-weight: 700;
+}
+.t-title {
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
+  font-weight: 600;
+}
+.t-body {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.t-caption {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  letter-spacing: 0.012em;
+  color: var(--text-3);
+}
+.t-label {
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ---------------------------------------------------------------------------
+   Materials. Bigger surfaces read as thicker: more blur, deeper shadow.
+   ------------------------------------------------------------------------ */
+.material {
+  position: relative;
+  background: rgb(var(--surface) / var(--surface-alpha));
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.material-thick {
+  position: relative;
+  background: rgb(var(--surface) / calc(var(--surface-alpha) + 0.12));
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+/* Bright top edge: light catching the material */
+.material::before,
+.material-thick::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  border-radius: var(--radius) var(--radius) 0 0;
+  pointer-events: none;
+}
+
+/* Scrim over the animated backdrop. Without it the rays run straight under
+   tabular numbers and the contrast collapses. */
+.scrim {
+  background:
+    radial-gradient(125% 95% at 50% 40%, rgb(0 0 0 / 0.10), rgb(0 0 0 / 0.55) 85%),
+    linear-gradient(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.18));
+}
+@media (prefers-color-scheme: light) {
+  .scrim {
+    background:
+      radial-gradient(125% 95% at 50% 40%, rgb(255 255 255 / 0.76), rgb(255 255 255 / 0.94) 85%),
+      linear-gradient(rgb(255 255 255 / 0.5), rgb(255 255 255 / 0.5));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .scrim {
+    background: var(--bg);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Still backdrop under the rays.
+
+   Not a placeholder. This is what the page looks like with no WebGL2, after a
+   lost context, and on the first frame before the canvas paints, so it has to
+   read as a finished background on its own. Tuned to the ray colours so the
+   canvas fading in over it is a brightening, not a colour change.
+   ------------------------------------------------------------------------ */
+.veil-still {
+  background:
+    radial-gradient(60rem 45rem at 92% -8%, rgb(34 197 94 / 0.20), transparent 60%),
+    radial-gradient(70rem 50rem at 78% 4%, rgb(134 239 172 / 0.14), transparent 62%),
+    radial-gradient(55rem 45rem at 8% 96%, rgb(6 78 59 / 0.32), transparent 60%),
+    #04070a;
+}
+@media (prefers-color-scheme: light) {
+  .veil-still {
+    background:
+      radial-gradient(60rem 45rem at 92% -8%, rgb(34 197 94 / 0.20), transparent 60%),
+      radial-gradient(70rem 50rem at 78% 4%, rgb(134 239 172 / 0.30), transparent 62%),
+      radial-gradient(55rem 45rem at 8% 96%, rgb(134 239 172 / 0.18), transparent 60%),
+      #f2f2f7;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Controls. Feedback lands on pointer-down, never on release.
+   ------------------------------------------------------------------------ */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgb(var(--surface) / 0.5);
+  border: 1px solid var(--hairline);
+}
+.seg-item {
+  padding: 0.3rem 0.75rem;
+  border-radius: 9px;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--text-2);
+  transition:
+    background 140ms ease-out,
+    color 140ms ease-out,
+    transform 100ms ease-out;
+}
+.seg-item:active {
+  transform: scale(0.96);
+}
+.seg-item[data-on="true"] {
+  background: var(--elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.pressable {
+  transition: transform 100ms ease-out;
+}
+.pressable:active {
+  transform: scale(0.985);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: rgb(var(--surface) / 0.55);
+  color: var(--text-2);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* The side pill carries the whole read of a card, so it is the one place
+   colour is allowed to shout. */
+.side-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Score meter. Width is the only animated property and it starts at zero so a
+   card that arrives late still reads as filling up rather than snapping. */
+.meter {
+  /* block, because it is also used as a flex child <span> in the risk row and
+     an inline element ignores height outright */
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+.meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 700ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* Live heartbeat. Tiny and local, never a full viewport movement. */
+@keyframes tick-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.pulse {
+  animation: tick-breathe 2.4s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollable panels. `scrollbar-gutter: stable` reserves the space in layout
+   rather than letting an opaque bar slice the last column off every row.
+   ------------------------------------------------------------------------ */
+.scroll-panel {
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--separator) transparent;
+  overscroll-behavior: contain;
+}
+.scroll-panel::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-panel::-webkit-scrollbar-thumb {
+  background-clip: padding-box;
+  background-color: var(--separator);
+  border: 3px solid transparent; /* inset the thumb so it never touches text */
+  border-radius: 999px;
+}
+.scroll-panel::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-3);
+}
+
+/* Named `dtable`, not `grid`: Tailwind ships a `.grid` utility that sets
+   display:grid, which silently destroys table layout if the names collide. */
+table.dtable {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+/* A sticky header needs an opaque background of its own. backdrop-filter alone
+   leaves it transparent and rows scroll straight through it. */
+table.dtable thead.sticky th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--elevated);
+  box-shadow: inset 0 -1px 0 var(--separator);
+}
+table.dtable td,
+table.dtable th {
+  border-bottom: 1px solid var(--hairline);
+}
+table.dtable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Detail sheet. Enter and exit travel the same path, so it always dismisses
+   downward, back to where it came from.
+   ------------------------------------------------------------------------ */
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgb(0 0 0 / 0.42);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 91;
+  max-height: 88vh;
+  border-radius: 22px 22px 0 0;
+  background: rgb(var(--surface) / 0.97);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border-top: 1px solid var(--hairline);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
+  will-change: transform;
+}
+@media (min-width: 640px) {
+  /* Centred with a negative margin rather than translateX(-50%): the drag owns
+     `transform` outright, and a centring transform there would be overwritten
+     on the first pointermove and throw the sheet to the left edge. */
+  .sheet {
+    inset: auto auto 0 50%;
+    width: min(46rem, 94vw);
+    margin-left: calc(min(46rem, 94vw) / -2);
+  }
+}
+.grabber {
+  width: 2.25rem;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--separator);
+  margin: 0.6rem auto 0.2rem;
+  flex: none;
+}
+
+/* Sortable table headers. The glyph slot keeps a fixed width so switching the
+   sorted column never shifts the header row sideways. */
+.sort-th {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color 140ms ease-out;
+}
+.sort-th-right {
+  flex-direction: row-reverse;
+}
+.sort-th:hover {
+  color: var(--text);
+}
+.sort-th:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.sort-glyph {
+  display: inline-block;
+  width: 0.6rem;
+  font-size: 0.7rem;
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Ask panel.
+
+   A parallel panel, not a modal task: on a wide screen the board stays fully
+   readable underneath, so it gets translucency and offset but no scrim. On a
+   narrow screen there is no room for both, so it covers and the scrim comes
+   back (applied in the component, not here).
+
+   It enters from the right and leaves to the right. Transform only, so it
+   stays on the compositor, and a transition rather than a keyframe so an
+   interrupted open animates from wherever it actually is.
+   ------------------------------------------------------------------------ */
+.ask-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgb(0 0 0 / 0.42);
+}
+.ask-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 71;
+  display: flex;
+  flex-direction: column;
+  width: min(26rem, 100vw);
+  background: rgb(var(--surface) / 0.97);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border-left: 1px solid var(--hairline);
+  box-shadow: var(--shadow-lg);
+  transform: translate3d(100%, 0, 0);
+  visibility: hidden;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    visibility 0s linear 320ms;
+}
+.ask-panel[data-open="true"] {
+  transform: translate3d(0, 0, 0);
+  visibility: visible;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    visibility 0s;
+}
+
+.chip-suggest {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  border-radius: 14px;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--hairline);
+  background: rgb(var(--surface) / 0.5);
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  font-weight: 550;
+  transition:
+    background 140ms ease-out,
+    color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+.chip-suggest:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.chip-suggest:disabled {
+  opacity: 0.5;
+}
+
+/* Bubbles arrive by growing from the corner they are anchored to, so a reply
+   emerges from the assistant's side and a question from yours.
+
+   Transform only, never opacity. An entrance that fades from 0 owns the
+   element's visibility, and a background tab freezes CSS animations: the reply
+   would land while you were on another tab and still be invisible when you came
+   back. A stalled transform is just a slightly smaller bubble. */
+@keyframes bubble-in {
+  from {
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    transform: scale(1) translateY(0);
+  }
+}
+.bubble-user,
+.bubble-ai {
+  animation: bubble-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.bubble-user {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 16px 16px 4px 16px;
+  transform-origin: bottom right;
+}
+.bubble-ai {
+  background: rgb(var(--surface) / 0.85);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  border-radius: 16px 16px 16px 4px;
+  transform-origin: bottom left;
+}
+
+/* The waiting bubble pops in the same way, then breathes on its border rather
+   than its transform: a looping scale would fight the arrival animation, and
+   colour is non-vestibular so it survives prefers-reduced-motion honestly. */
+.bubble-thinking {
+  animation:
+    bubble-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    think-glow 1.8s ease-in-out 320ms infinite;
+}
+@keyframes think-glow {
+  0%,
+  100% {
+    border-color: var(--hairline);
+    background: rgb(var(--surface) / 0.85);
+  }
+  50% {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+}
+
+.ask-bar {
+  border: 1px solid var(--hairline);
+  background: var(--elevated);
+  border-radius: 14px;
+  padding: 0.25rem 0.25rem 0.25rem 0.6rem;
+  transition: border-color 140ms ease-out;
+}
+.ask-bar:focus-within {
+  border-color: var(--accent);
+}
+.ask-send {
+  padding: 0.35rem 0.9rem;
+  border-radius: 11px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+}
+.ask-send:disabled {
+  background: rgb(var(--surface) / 0.9);
+  color: var(--text-3);
+  border: 1px solid var(--hairline);
+}
+
+/* three-dot thinking indicator */
+.dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  height: 1.2em;
+}
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-3);
+  animation: dot-bounce 1.2s ease-in-out infinite;
+}
+.dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Accessibility: reduced motion still gets feedback, just non-vestibular.
+   ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+  }
+  .pressable:active,
+  .seg-item:active {
+    transform: none;
+  }
+  /* The panel still needs to arrive and leave; it just cross-fades instead of
+     sliding, and visibility must stay tied to the fade or it traps focus. */
+  .ask-panel {
+    transform: none;
+    opacity: 0;
+    transition:
+      opacity 200ms ease,
+      visibility 0s linear 200ms;
+  }
+  .ask-panel[data-open="true"] {
+    opacity: 1;
+    transition:
+      opacity 200ms ease,
+      visibility 0s;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .material,
+  .material-thick,
+  .seg,
+  .sheet,
+  .ask-panel {
+    background: var(--elevated);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .material,
+  .material-thick {
+    background: var(--elevated);
+    border-color: var(--text-2);
+  }
+}
