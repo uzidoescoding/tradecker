@@ -77,6 +77,83 @@ export function drift(candles: Candle[], bars = 24): number {
   return first > 0 ? ((last - first) / first) * 100 : 0;
 }
 
+/**
+ * Pivot highs and lows, the levels price has actually turned at.
+ *
+ * A bar is a pivot high when nothing in the `k` bars either side traded higher.
+ * These are real, observable turning points, unlike a trendline someone drew,
+ * and they are what a stop or a target should be placed around.
+ */
+export function pivots(candles: Candle[], k = 3): { highs: number[]; lows: number[] } {
+  const highs: number[] = [];
+  const lows: number[] = [];
+  for (let i = k; i < candles.length - k; i++) {
+    let isHigh = true;
+    let isLow = true;
+    for (let j = i - k; j <= i + k; j++) {
+      if (j === i) continue;
+      if (candles[j].h >= candles[i].h) isHigh = false;
+      if (candles[j].l <= candles[i].l) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) highs.push(candles[i].h);
+    if (isLow) lows.push(candles[i].l);
+  }
+  return { highs, lows };
+}
+
+/**
+ * The nearest meaningful pivot above and below the current price.
+ *
+ * `minGap` is what makes this useful rather than decorative. Over 30 days of
+ * hourly bars there are hundreds of pivots, so the literal nearest one is
+ * essentially always a fraction of a percent away and tells you nothing: a
+ * "resistance 0.03% above" is not a level, it is the current price with extra
+ * steps. Anything closer than minGap is treated as noise and skipped, so what
+ * comes back is a level a stop or target could actually be placed around.
+ *
+ * Callers pass roughly one ATR, which scales the filter to how far the
+ * instrument actually moves instead of a fixed percentage.
+ */
+export function nearestLevels(candles: Candle[], price: number, k = 6, minGap = 0) {
+  const { highs, lows } = pivots(candles, k);
+  const above = highs.filter((h) => h > price + minGap).sort((a, b) => a - b)[0] ?? null;
+  const below = lows.filter((l) => l < price - minGap).sort((a, b) => b - a)[0] ?? null;
+  return {
+    resistance: above,
+    support: below,
+    resistancePct: above != null && price > 0 ? ((above - price) / price) * 100 : null,
+    supportPct: below != null && price > 0 ? ((price - below) / price) * 100 : null,
+  };
+}
+
+/**
+ * Where price sits in its recent range, 0 at the low and 100 at the high.
+ *
+ * Buying at 95 and buying at 20 are different trades even when every other
+ * number on the card is identical.
+ */
+export function rangePosition(candles: Candle[], bars = 168) {
+  const slice = candles.slice(-Math.min(bars, candles.length));
+  if (slice.length === 0) return { low: 0, high: 0, position: 50 };
+  const low = Math.min(...slice.map((c) => c.l));
+  const high = Math.max(...slice.map((c) => c.h));
+  const last = slice[slice.length - 1].c;
+  const span = high - low;
+  return { low, high, position: span > 0 ? ((last - low) / span) * 100 : 50 };
+}
+
+/**
+ * Leverage implied by a stop, for a given account risk.
+ *
+ * The identity people get wrong most often: if you are willing to lose 1% of
+ * the account and your stop is 0.5% away, that is 2x. Leverage is not a dial
+ * you pick, it falls out of the stop you chose.
+ */
+export function impliedLeverage(riskPct: number, stopPct: number) {
+  return stopPct > 0 ? riskPct / stopPct : 0;
+}
+
 const clampPct = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**

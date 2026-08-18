@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import type { Analysis as A } from "@/app/api/analyze/route";
 import type { Consensus } from "@/lib/consensus";
-import { pct, px, tone } from "@/lib/fmt";
+import { pct, px, tone, usd } from "@/lib/fmt";
 
 /**
  * The AI read on one instrument.
  *
- * Two things this deliberately does not do. It does not present the levels as
- * the model's unaided work: where a proposal failed validation the panel says
- * so by name. And it does not hide the volatility scaffold, because "the model
- * agreed with the scaffold" and "the model had an opinion" look identical
- * otherwise, and only one of them is worth reading.
+ * Dense on purpose. The layout is built so the whole note is scannable without
+ * scrolling: numbers live in tight labelled grids, prose is capped at a line or
+ * two per section, and nothing repeats itself between sections.
+ *
+ * Two things it deliberately does not do. It does not present the levels as the
+ * model's unaided work: where a proposal failed validation the panel says so by
+ * name. And it does not hide the volatility scaffold, because "the model agreed
+ * with the scaffold" and "the model had an opinion" look identical otherwise.
  */
 export default function Analysis({ row }: { row: Consensus }) {
   const [data, setData] = useState<A | null>(null);
@@ -67,8 +70,10 @@ export default function Analysis({ row }: { row: Consensus }) {
   }
 
   const p = data.plan;
+  const m = data.market;
   const dir = p.side === "long" ? 1 : -1;
   const away = (v: number) => ((v - p.entry) / p.entry) * 100;
+  const stopPct = (p.risk / p.entry) * 100;
 
   return (
     <div className="material mt-1 mb-4 p-4">
@@ -76,15 +81,18 @@ export default function Analysis({ row }: { row: Consensus }) {
         <p className="t-label">Desk read</p>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="chip">{data.sector}</span>
-          <span className="chip">{data.assetClass}</span>
           <span className="chip">conviction: {data.conviction}</span>
-          <span className="chip">ATR {data.atrPct.toFixed(2)}%</span>
+          <span className="chip">horizon: {data.horizon}</span>
+          <span className="chip">ATR {m.atrPct.toFixed(2)}%</span>
         </div>
       </div>
 
+      {/* The whole thesis in one line, so the rest is optional reading. */}
+      <p className="t-title mt-2">{data.headline}</p>
+
       {data.disagreesWithConsensus && (
         <p
-          className="t-caption mt-3 rounded-xl px-3 py-2"
+          className="t-caption mt-2 rounded-xl px-3 py-2"
           style={{ background: "var(--warn-soft)", color: "var(--text-2)" }}
         >
           The model reads this <strong>{p.side}</strong> while the cohort is positioned{" "}
@@ -93,19 +101,19 @@ export default function Analysis({ row }: { row: Consensus }) {
       )}
 
       {data.read && (
-        <p className="t-body mt-3" style={{ color: "var(--text-2)" }}>
+        <p className="t-body mt-2" style={{ color: "var(--text-2)" }}>
           {data.read}
         </p>
       )}
 
-      {/* Levels. Entry, stop and each target with its distance, because a bare
-          price tells you nothing about whether the stop is 0.4% or 14% away. */}
-      <div className="mt-4 overflow-hidden rounded-xl" style={{ border: "1px solid var(--hairline)" }}>
+      {/* ------------------------------------------------------------ levels */}
+      <p className="t-label mt-4 mb-1.5">The trade</p>
+      <div className="overflow-hidden rounded-xl" style={{ border: "1px solid var(--hairline)" }}>
         <Level k="Entry" v={px(p.entry)} note={p.side === "long" ? "buy" : "sell"} accent="var(--text)" />
         <Level
           k="Stop"
           v={px(p.stop)}
-          note={`${Math.abs(away(p.stop)).toFixed(2)}% away, 1R`}
+          note={`${stopPct.toFixed(2)}% away, 1R`}
           accent="var(--down)"
         />
         {p.targets.map((t, i) => (
@@ -119,23 +127,97 @@ export default function Analysis({ row }: { row: Consensus }) {
         ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-2 grid grid-cols-3 gap-3 sm:grid-cols-6">
         <Mini k="Risk / unit" v={px(p.risk)} />
-        <Mini k="R:R at TP3" v={`${p.rr.toFixed(1)} : 1`} tone={p.rr >= 2 ? "var(--up)" : undefined} />
-        <Mini k="24h drift" v={pct(data.drift24h)} tone={tone(data.drift24h * dir)} />
-        <Mini k="Group entry" v={px(row.avgEntry)} />
+        <Mini k="R:R at TP3" v={`${p.rr.toFixed(1)}:1`} tone={p.rr >= 2 ? "var(--up)" : undefined} />
+        {/* Leverage is not a dial you pick, it falls out of the stop you chose. */}
+        {data.sizing.map((s) => (
+          <Mini
+            key={s.riskPct}
+            k={`${s.riskPct}% risk`}
+            v={`${s.leverage.toFixed(1)}x`}
+            tone={s.leverage > m.maxLeverage && m.maxLeverage > 0 ? "var(--down)" : undefined}
+          />
+        ))}
+        <Mini k="Venue cap" v={m.maxLeverage ? `${m.maxLeverage}x` : "—"} />
+      </div>
+      <p className="t-caption mt-1.5">{data.why}</p>
+
+      {/* --------------------------------------------------------- structure */}
+      <p className="t-label mt-4 mb-1.5">Where price sits</p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Mini k="24h" v={pct(m.change24hPct)} tone={tone(m.change24hPct * dir)} />
+        <Mini k="7d" v={pct(m.drift7d)} tone={tone(m.drift7d * dir)} />
+        <Mini k="30d" v={pct(m.drift30d)} tone={tone(m.drift30d * dir)} />
+        <Mini k="In 7d range" v={`${Math.round(m.rangePosition)}%`} />
+        <Mini
+          k="Support"
+          v={m.support == null ? "none found" : px(m.support)}
+          hint={m.supportPct == null ? "in this window" : `${m.supportPct.toFixed(1)}% below`}
+        />
+        <Mini
+          k="Resistance"
+          v={m.resistance == null ? "none found" : px(m.resistance)}
+          hint={m.resistancePct == null ? "in this window" : `${m.resistancePct.toFixed(1)}% above`}
+        />
+        <Mini k="7d low" v={px(m.rangeLow)} />
+        <Mini k="7d high" v={px(m.rangeHigh)} />
+      </div>
+      {data.structure && <p className="t-caption mt-1.5">{data.structure}</p>}
+
+      {/* -------------------------------------------------------- positioning */}
+      <p className="t-label mt-4 mb-1.5">The book</p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Mini
+          k="Funding"
+          v={`${m.fundingPct >= 0 ? "+" : ""}${m.fundingPct.toFixed(4)}%/h`}
+          hint={`${m.fundingAnnualPct >= 0 ? "+" : ""}${m.fundingAnnualPct.toFixed(0)}% a year`}
+          tone={
+            m.fundingForYou === "collect"
+              ? "var(--up)"
+              : m.fundingForYou === "pay"
+                ? "var(--down)"
+                : undefined
+          }
+        />
+        <Mini
+          k="You"
+          v={m.fundingForYou === "flat" ? "neither" : m.fundingForYou}
+          hint="holding this side"
+          tone={m.fundingForYou === "collect" ? "var(--up)" : m.fundingForYou === "pay" ? "var(--down)" : undefined}
+        />
+        <Mini k="Open interest" v={usd(m.openInterestUsd)} hint="whole venue" />
+        <Mini
+          k="24h volume"
+          v={usd(m.dayVolumeUsd)}
+          hint={m.turnover ? `${m.turnover.toFixed(1)}x the OI` : "vs open interest"}
+        />
+      </div>
+      {data.positioning && <p className="t-caption mt-1.5">{data.positioning}</p>}
+
+      {/* --------------------------------------------------------- both sides */}
+      {(data.bullCase || data.bearCase) && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {data.bullCase && <Case k="If it works" v={data.bullCase} accent="var(--up)" />}
+          {data.bearCase && <Case k="If it does not" v={data.bearCase} accent="var(--down)" />}
+        </div>
+      )}
+
+      <div className="mt-3 space-y-1">
+        {data.confirmation && <Line k="Confirmed by" v={data.confirmation} />}
+        <Line k="Invalidated if" v={data.invalidation} />
       </div>
 
-      <p className="t-caption mt-3">{data.why}</p>
-      <p className="t-caption mt-1">
-        <strong style={{ color: "var(--text-2)" }}>Invalidated if:</strong> {data.invalidation}
-      </p>
-
-      {data.risks.length > 0 && (
+      {(data.watch.length > 0 || data.risks.length > 0) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
+          {data.watch.map((w) => (
+            <span key={w} className="chip" style={{ color: "var(--accent)" }}>
+              watch: {w}
+            </span>
+          ))}
           {data.risks.map((r) => (
             <span key={r} className="chip" style={{ color: "var(--warn)" }}>
-              {r}
+              risk: {r}
             </span>
           ))}
         </div>
@@ -153,8 +235,9 @@ export default function Analysis({ row }: { row: Consensus }) {
         ) : (
           <>The model reviewed them and its adjustments passed validation.</>
         )}{" "}
-        Generated by {data.model} from the numbers above and nothing else: it has no news, no
-        macro and no knowledge of anything off this page. Not advice.
+        Prose generated by {data.model} from the {m.bars} hourly bars and the figures above, and
+        nothing else: it has no news, no macro and no knowledge of anything off this page. Not
+        advice.
       </p>
     </div>
   );
@@ -163,25 +246,45 @@ export default function Analysis({ row }: { row: Consensus }) {
 function Level({ k, v, note, accent }: { k: string; v: string; note: string; accent: string }) {
   return (
     <div
-      className="flex items-baseline justify-between gap-3 px-3 py-2"
+      className="flex items-baseline justify-between gap-3 px-3 py-1.5"
       style={{ borderBottom: "1px solid var(--hairline)" }}
     >
       <span className="t-label" style={{ color: accent }}>
         {k}
       </span>
       <span className="tnum flex-1 text-right text-sm font-semibold">{v}</span>
-      <span className="t-caption w-32 text-right">{note}</span>
+      <span className="t-caption w-28 text-right">{note}</span>
     </div>
   );
 }
 
-function Mini({ k, v, tone }: { k: string; v: string; tone?: string }) {
+function Mini({ k, v, hint, tone }: { k: string; v: string; hint?: string; tone?: string }) {
   return (
-    <div>
-      <p className="t-label">{k}</p>
-      <p className="tnum text-sm font-semibold" style={tone ? { color: tone } : undefined}>
+    <div className="min-w-0">
+      <p className="t-label truncate">{k}</p>
+      <p className="tnum truncate text-sm font-semibold" style={tone ? { color: tone } : undefined}>
         {v}
       </p>
+      {hint && <p className="t-caption truncate">{hint}</p>}
     </div>
+  );
+}
+
+function Case({ k, v, accent }: { k: string; v: string; accent: string }) {
+  return (
+    <div className="rounded-xl px-3 py-2" style={{ border: "1px solid var(--hairline)" }}>
+      <p className="t-label" style={{ color: accent }}>
+        {k}
+      </p>
+      <p className="t-caption mt-0.5">{v}</p>
+    </div>
+  );
+}
+
+function Line({ k, v }: { k: string; v: string }) {
+  return (
+    <p className="t-caption">
+      <strong style={{ color: "var(--text-2)" }}>{k}:</strong> {v}
+    </p>
   );
 }

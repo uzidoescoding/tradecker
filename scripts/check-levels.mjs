@@ -38,7 +38,8 @@ execFileSync(
 );
 
 const require = createRequire(import.meta.url);
-const { atr, atrPct, drift, scaffold, reconcile } = require(join(build, "levels.js"));
+const { atr, atrPct, drift, scaffold, reconcile, pivots, nearestLevels, rangePosition, impliedLeverage } =
+  require(join(build, "levels.js"));
 const { sector, assetClass, baseTicker, sectorMix } = require(join(build, "categories.js"));
 
 /* --------------------------------------------------------------------- atr */
@@ -64,6 +65,67 @@ const bar = (o, h, l, c) => ({ t: 0, o, h, l, c, v: 1 });
   const up = Array.from({ length: 10 }, (_, i) => bar(100 + i, 100 + i, 100 + i, 100 + i));
   assert.ok(Math.abs(drift(up, 10) - 9) < 1e-9, `100 to 109 is +9%, got ${drift(up, 10)}`);
   assert.equal(drift([]), 0);
+}
+
+/* ------------------------------------------------------- market structure */
+
+{
+  // A clean peak at index 4 and a clean trough at index 10.
+  const c = [100, 101, 102, 103, 110, 103, 102, 101, 100, 99, 90, 99, 100, 101, 102].map((v, i) =>
+    bar(v, v + 0.5, v - 0.5, v),
+  );
+  const p = pivots(c, 3);
+  assert.ok(p.highs.some((h) => Math.abs(h - 110.5) < 1e-9), "the peak is found");
+  assert.ok(p.lows.some((l) => Math.abs(l - 89.5) < 1e-9), "and the trough");
+  assert.deepEqual(pivots([], 3), { highs: [], lows: [] }, "no candles, no pivots");
+  assert.deepEqual(pivots(c.slice(0, 3), 3), { highs: [], lows: [] }, "too few to have a middle");
+
+  const n = nearestLevels(c, 100, 3);
+  assert.ok(n.resistance > 100, "resistance sits above price");
+  assert.ok(n.support < 100, "support below");
+  assert.ok(n.resistancePct > 0 && n.supportPct > 0, "distances are reported as positive gaps");
+
+  // minGap is what stops the "nearest" level from being the current price with
+  // extra steps. A level inside the gap is noise and must be skipped for the
+  // next real one out.
+  const noisy = [
+    ...Array.from({ length: 7 }, () => bar(100, 100.1, 99.9, 100)),
+    bar(100, 100.2, 99.8, 100), // a tiny pivot high right at price
+    ...Array.from({ length: 7 }, () => bar(100, 100.1, 99.9, 100)),
+    bar(100, 120, 99.9, 100), // and a real one far above
+    ...Array.from({ length: 7 }, () => bar(100, 100.1, 99.9, 100)),
+  ];
+  const loose = nearestLevels(noisy, 100, 3, 0);
+  assert.ok(loose.resistance < 101, "with no gap filter, the noise wins");
+  const strict = nearestLevels(noisy, 100, 3, 5);
+  assert.ok(strict.resistance > 101, `a 5 wide gap skips the noise, got ${strict.resistance}`);
+  assert.ok(strict.resistancePct > 5, "and the reported distance is worth acting on");
+
+  // Nothing above means no resistance, and null is the honest answer, not 0.
+  const far = nearestLevels(c, 500, 3);
+  assert.equal(far.resistance, null);
+  assert.equal(far.resistancePct, null);
+  assert.ok(far.support < 500);
+
+  // A gap wider than anything on the chart yields nothing, not a wrong answer.
+  const impossible = nearestLevels(c, 100, 3, 1e6);
+  assert.equal(impossible.resistance, null);
+  assert.equal(impossible.support, null);
+
+  const r = rangePosition(c, 15);
+  assert.ok(r.high >= 110 && r.low <= 90, "range covers the extremes");
+  assert.ok(r.position >= 0 && r.position <= 100);
+
+  const flat = rangePosition(Array.from({ length: 5 }, () => bar(50, 50, 50, 50)), 5);
+  assert.equal(flat.position, 50, "a range with no width is the middle, not a divide by zero");
+  assert.equal(rangePosition([], 10).position, 50);
+}
+
+{
+  // The identity that matters: risk 1% with a 0.5% stop and you are at 2x.
+  assert.equal(impliedLeverage(1, 0.5), 2);
+  assert.equal(impliedLeverage(1, 5), 0.2);
+  assert.equal(impliedLeverage(1, 0), 0, "a zero width stop cannot imply leverage");
 }
 
 /* ---------------------------------------------------------------- scaffold */

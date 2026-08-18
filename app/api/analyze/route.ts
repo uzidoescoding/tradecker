@@ -1,47 +1,74 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assetClass, sector } from "@/lib/categories";
 import { chat, parseJson } from "@/lib/groq";
-import { atr, atrPct, drift, reconcile, scaffold, type Plan, type Proposed } from "@/lib/levels";
-import { candles } from "@/lib/hyperliquid";
+import {
+  atr,
+  atrPct,
+  drift,
+  impliedLeverage,
+  nearestLevels,
+  rangePosition,
+  reconcile,
+  scaffold,
+  type Plan,
+  type Proposed,
+} from "@/lib/levels";
+import { assetContexts, candles } from "@/lib/hyperliquid";
 import { cleanProse } from "@/lib/text";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SYSTEM = `You are a trading desk analyst writing a plan for one instrument.
+const SYSTEM = `You are a trading desk analyst writing the note that goes out before the open.
 
-You are given: a consensus reading built from the live open positions of accounts that are
-profitable over the long run, the current price, realised volatility (ATR), recent drift, and a
-volatility derived scaffold of levels.
+You are given a consensus reading built from the live open positions of accounts that are
+profitable over the long run, the current price, realised volatility, market structure levels,
+funding, open interest, and a volatility derived scaffold of trade levels.
 
 Rules:
 - Work ONLY from the numbers supplied. You have no knowledge of news, macro, fundamentals, token
   unlocks or anything outside this payload. Never invent any of it.
 - The scaffold levels are anchored to real volatility. Adjust them only when the supplied numbers
   give you a concrete reason, and say what the reason was. Keeping the scaffold is a fine answer.
-- A risk reading is supplied. Do not restate it as a number, but let it shape the tone: if the
-  risk is High or Severe, say what specifically makes it so in your read.
-- Your bias should normally match the consensus side. If you disagree with it, say so explicitly
-  and explain which number changed your mind.
-- The stop must sit on the losing side of entry. Targets must be in profit and in increasing
-  distance from entry.
-- Describe what the data says and what the risk is. Never tell the reader what they must do with
-  their money.
+- Reference the actual structure you were given. If support sits 2% below and your stop is 3%
+  below, say that the stop sits under support. That is the kind of detail this note exists for.
+- Funding matters: say whether this side collects it or pays it, and whether the rate is enough to
+  care about over the horizon you are proposing.
+- Your bias should normally match the consensus side. If you disagree, say so and name the number
+  that changed your mind.
+- A risk reading is supplied. Let it shape the tone, and if it is High or Severe, say what
+  specifically makes it so.
+- Never tell the reader what they must do with their money.
+- Every field is dense and specific. No filler, no restating the label, no hedging phrases like
+  "it depends" or "traders should monitor". If you have nothing to say in a field, be concrete
+  about why rather than padding it.
 - Never use em-dashes or double hyphens; use commas or colons instead.
 
-Reply with JSON only, in exactly this shape:
+Reply with JSON only, using exactly these keys, all flat, no nested objects and no arrays:
 {
+  "headline": "one line, under 90 characters, the whole thesis",
   "bias": "long" | "short",
   "conviction": "low" | "medium" | "high",
+  "horizon": "hours" | "days" | "weeks",
   "entry": number,
   "stop": number,
   "tp1": number,
   "tp2": number,
   "tp3": number,
-  "read": "3 to 5 sentences on what is going on in this instrument",
-  "why": "1 to 2 sentences on why these levels, referencing ATR or the group's entry",
-  "invalidation": "1 sentence: the specific condition that kills this idea",
-  "risks": ["short phrase", "short phrase"]
+  "read": "4 to 6 sentences, the full picture",
+  "why": "1 to 2 sentences on why these levels sit where they do",
+  "structure": "1 to 2 sentences on where price sits against support, resistance and its range",
+  "positioning": "1 to 2 sentences on the cohort, funding and open interest together",
+  "bullCase": "1 to 2 sentences, what happens if this works",
+  "bearCase": "1 to 2 sentences, what happens if it does not",
+  "confirmation": "1 sentence: the specific thing that would confirm this idea",
+  "invalidation": "1 sentence: the specific condition that kills it",
+  "watch1": "short trigger phrase",
+  "watch2": "short trigger phrase",
+  "watch3": "short trigger phrase",
+  "risk1": "short phrase",
+  "risk2": "short phrase",
+  "risk3": "short phrase"
 }
 
 Every price must be a separate bare JSON number rounded to at most 6 significant digits. tp1 is
@@ -58,6 +85,7 @@ type Body = {
   withCount?: number;
   againstCount?: number;
   withNotional?: number;
+  againstNotional?: number;
   avgEntry?: number;
   avgLeverage?: number;
   avgCommitment?: number;
@@ -67,23 +95,60 @@ type Body = {
   risk?: { score?: number; band?: string; drivers?: { note?: string }[] };
 };
 
+export type Market = {
+  price: number;
+  change24hPct: number;
+  atr: number;
+  atrPct: number;
+  drift24h: number;
+  drift7d: number;
+  drift30d: number;
+  rangeLow: number;
+  rangeHigh: number;
+  rangePosition: number;
+  support: number | null;
+  supportPct: number | null;
+  resistance: number | null;
+  resistancePct: number | null;
+  /** Hourly rate as a percent. */
+  fundingPct: number;
+  fundingAnnualPct: number;
+  /** What the funding does to THIS side of the trade. */
+  fundingForYou: "collect" | "pay" | "flat";
+  openInterestUsd: number;
+  dayVolumeUsd: number;
+  /** Day volume over open interest. High means the book turns over fast. */
+  turnover: number;
+  premiumBps: number;
+  maxLeverage: number;
+  bars: number;
+};
+
 export type Analysis = {
   coin: string;
   sector: string;
   assetClass: string;
+  headline: string;
   plan: Plan;
   scaffold: Plan;
   /** Fields the model proposed that failed validation and were replaced. */
   rejected: string[];
   disagreesWithConsensus: boolean;
   conviction: string;
+  horizon: string;
   read: string;
   why: string;
+  structure: string;
+  positioning: string;
+  bullCase: string;
+  bearCase: string;
+  confirmation: string;
   invalidation: string;
+  watch: string[];
   risks: string[];
-  atr: number;
-  atrPct: number;
-  drift24h: number;
+  market: Market;
+  /** Leverage implied by the stop at each account risk level. */
+  sizing: { riskPct: number; leverage: number }[];
   model: string;
   degraded: boolean;
   error?: string;
@@ -95,11 +160,9 @@ const num = (v: unknown, fallback = 0) =>
 /**
  * Round to six significant digits before handing a number to the model.
  *
- * Not cosmetic. Feeding gpt-oss a scaffold of full precision floats like
- * 44.112884413253326 made it echo all three targets glued into a single string,
- * "44.35644220662667 44.11288441325333 43.86932661988", which failed validation
- * every time and silently threw away the model's opinion. Clean inputs come
- * back as clean outputs. Six digits is far finer than any tick size here.
+ * Not cosmetic. Feeding gpt-oss a scaffold of full precision floats made it echo
+ * all three targets glued into a single string. Clean inputs come back as clean
+ * outputs, and six digits is far finer than any tick size here.
  */
 const sig = (v: number) => Number(v.toPrecision(6));
 
@@ -119,20 +182,58 @@ export async function POST(req: NextRequest) {
   }
   const side = body.side === "short" ? "short" : "long";
 
-  let bars: Awaited<ReturnType<typeof candles>> = [];
-  try {
-    bars = await candles(coin, "1h", 200);
-  } catch {
-    // A coin too new to have history still gets a plan, just a wider one.
-  }
+  // Both are best effort. A coin too new for candles, or a venue hiccup on the
+  // context call, still gets a plan; it just gets a less detailed one.
+  const [bars, ctxs] = await Promise.all([
+    candles(coin, "1h", 720).catch(() => []),
+    assetContexts().catch(() => ({}) as Record<string, never>),
+  ]);
+  const ctx = ctxs[coin];
 
-  const price = num(body.price) || bars[bars.length - 1]?.c || 0;
+  const price = num(body.price) || ctx?.markPx || bars[bars.length - 1]?.c || 0;
   if (price <= 0) {
     return NextResponse.json({ error: "No price available for this instrument" }, { status: 502 });
   }
 
   const atrValue = atr(bars);
   const base = scaffold(side, price, atrValue);
+  const range = rangePosition(bars, 168);
+  // One ATR of separation, so a "level" is somewhere price has actually turned
+  // and travelled away from, not the last wiggle.
+  const levels = nearestLevels(bars, price, 6, atrValue);
+
+  const fundingPct = (ctx?.funding ?? 0) * 100;
+  const market: Market = {
+    price,
+    change24hPct: ctx?.prevDayPx ? ((price - ctx.prevDayPx) / ctx.prevDayPx) * 100 : 0,
+    atr: atrValue,
+    atrPct: atrPct(bars),
+    drift24h: drift(bars, 24),
+    drift7d: drift(bars, 168),
+    drift30d: drift(bars, 720),
+    rangeLow: range.low,
+    rangeHigh: range.high,
+    rangePosition: range.position,
+    support: levels.support,
+    supportPct: levels.supportPct,
+    resistance: levels.resistance,
+    resistancePct: levels.resistancePct,
+    fundingPct,
+    fundingAnnualPct: fundingPct * 24 * 365,
+    // Positive funding means longs pay shorts, so a short collects it.
+    fundingForYou:
+      Math.abs(fundingPct) < 1e-6
+        ? "flat"
+        : fundingPct > 0 === (side === "short")
+          ? "collect"
+          : "pay",
+    openInterestUsd: ctx?.openInterestUsd ?? 0,
+    dayVolumeUsd: ctx?.dayNotionalVolume ?? 0,
+    turnover: ctx?.openInterestUsd ? ctx.dayNotionalVolume / ctx.openInterestUsd : 0,
+    premiumBps: (ctx?.premium ?? 0) * 10_000,
+    maxLeverage: ctx?.maxLeverage ?? 0,
+    bars: bars.length,
+  };
 
   const facts = {
     instrument: coin,
@@ -144,6 +245,7 @@ export async function POST(req: NextRequest) {
       tradersWith: num(body.withCount),
       tradersAgainst: num(body.againstCount),
       notionalWith: Math.round(num(body.withNotional)),
+      notionalAgainst: Math.round(num(body.againstNotional)),
       agreementPct: Math.round(num(body.agreement) * 100),
       agreementScore: num(body.score),
       entryScore: num(body.entryScore),
@@ -154,26 +256,44 @@ export async function POST(req: NextRequest) {
       groupAvgAccountShare: Number((num(body.avgCommitment) * 100).toFixed(1)),
       flags: Array.isArray(body.flags) ? body.flags.slice(0, 6) : [],
     },
-    // The board already shows a risk reading. Give the model the same one so
-    // its written read cannot quietly contradict the number next to it.
     risk: {
       score: num(body.risk?.score),
       band: body.risk?.band ?? "unrated",
       drivers: (body.risk?.drivers ?? []).slice(0, 6).map((d) => d?.note).filter(Boolean),
     },
-    volatility: {
-      atr1h: sig(atrValue),
-      atrPctOfPrice: Number(atrPct(bars).toFixed(2)),
-      drift24hPct: Number(drift(bars, 24).toFixed(2)),
-      drift7dPct: Number(drift(bars, 168).toFixed(2)),
-      barsAvailable: bars.length,
+    market: {
+      change24hPct: Number(market.change24hPct.toFixed(2)),
+      atrPctOfPrice: Number(market.atrPct.toFixed(2)),
+      drift24hPct: Number(market.drift24h.toFixed(2)),
+      drift7dPct: Number(market.drift7d.toFixed(2)),
+      drift30dPct: Number(market.drift30d.toFixed(2)),
+      sevenDayLow: sig(market.rangeLow),
+      sevenDayHigh: sig(market.rangeHigh),
+      positionInRangePct: Math.round(market.rangePosition),
+      nearestSupport: market.support == null ? null : sig(market.support),
+      supportDistancePct: market.supportPct == null ? null : Number(market.supportPct.toFixed(2)),
+      nearestResistance: market.resistance == null ? null : sig(market.resistance),
+      resistanceDistancePct:
+        market.resistancePct == null ? null : Number(market.resistancePct.toFixed(2)),
+      hourlyFundingPct: Number(market.fundingPct.toFixed(5)),
+      annualisedFundingPct: Number(market.fundingAnnualPct.toFixed(1)),
+      fundingForThisSide: market.fundingForYou,
+      openInterestUsd: Math.round(market.openInterestUsd),
+      dayVolumeUsd: Math.round(market.dayVolumeUsd),
+      volumeOverOpenInterest: Number(market.turnover.toFixed(2)),
+      markVsOracleBps: Number(market.premiumBps.toFixed(1)),
+      venueMaxLeverage: market.maxLeverage,
+      hourlyBarsAvailable: market.bars,
     },
     scaffold: {
       entry: sig(base.entry),
       stop: sig(base.stop),
-      targets: base.targets.map(sig),
+      tp1: sig(base.targets[0]),
+      tp2: sig(base.targets[1]),
+      tp3: sig(base.targets[2]),
       riskPerUnit: sig(base.risk),
-      note: "stop is 1.5x ATR from entry, targets are 1R / 2R / 3R off that risk",
+      stopDistancePct: Number(((base.risk / price) * 100).toFixed(3)),
+      note: "stop is 1.5x the 1h ATR from entry, targets are 1R / 2R / 3R off that risk",
     },
   };
 
@@ -182,20 +302,15 @@ export async function POST(req: NextRequest) {
       { role: "system", content: SYSTEM },
       { role: "user", content: JSON.stringify(facts) },
     ],
-    { json: true, maxTokens: 1400 },
+    { json: true, maxTokens: 2200 },
   );
 
-  type Raw = Record<string, unknown> & { tp1?: unknown; tp2?: unknown; tp3?: unknown };
+  type Raw = Record<string, unknown>;
   const parsed = reply.error ? null : parseJson<Raw>(reply.text);
 
-  // Targets arrive as three flat fields, not as an array.
-  //
-  // Asked for `"targets": [number, number, number]`, gpt-oss-120b reliably
-  // returned a one element array with all three numbers concatenated into a
-  // single string: ["44.355744.111443.8671"]. Flat scalar fields in the same
-  // response came back clean every time, so the schema was flattened to match
-  // what the model can actually produce. reconcile still validates the result,
-  // and still rejects the glued form if a future model reintroduces it.
+  // Targets arrive as three flat fields, not as an array. Asked for an array,
+  // gpt-oss-120b returned all three numbers concatenated into a single string.
+  // Flat scalars in the same response came back clean every time.
   const proposed: Proposed | null = parsed
     ? {
         side: typeof parsed.bias === "string" ? parsed.bias : undefined,
@@ -207,35 +322,44 @@ export async function POST(req: NextRequest) {
 
   const { plan, rejected } = reconcile(base, proposed);
 
-  const str = (v: unknown, fallback = "") =>
-    typeof v === "string" && v.trim() ? cleanProse(v.trim()) : fallback;
+  const str = (key: string, fallback = "") => {
+    const v = parsed?.[key];
+    return typeof v === "string" && v.trim() ? cleanProse(v.trim()) : fallback;
+  };
+  const list = (...keys: string[]) => keys.map((k) => str(k)).filter(Boolean);
+
+  const stopPct = (plan.risk / plan.entry) * 100;
 
   const out: Analysis = {
     coin,
     sector: sector(coin),
     assetClass: assetClass(coin),
+    headline: str("headline", `${coin} ${plan.side}, ${plan.rr.toFixed(1)} to 1 at the far target`),
     plan,
     scaffold: base,
     rejected,
     disagreesWithConsensus: plan.side !== side,
-    conviction: str(parsed?.conviction, "unrated"),
+    conviction: str("conviction", "unrated"),
+    horizon: str("horizon", "unstated"),
     read: str(
-      parsed?.read,
-      reply.error
-        ? ""
-        : "The model returned nothing usable, so the levels below are the volatility scaffold on its own.",
+      "read",
+      reply.error ? "" : "The model returned nothing usable, so everything below is computed.",
     ),
-    why: str(
-      parsed?.why,
-      `Stop is 1.5x the 1h ATR from entry, targets are 1R, 2R and 3R off that same risk unit.`,
-    ),
-    invalidation: str(parsed?.invalidation, "Price closing beyond the stop on the 1h chart."),
-    risks: Array.isArray(parsed?.risks)
-      ? (parsed.risks as unknown[]).filter((r) => typeof r === "string").slice(0, 4).map((r) => cleanProse(r as string))
-      : [],
-    atr: atrValue,
-    atrPct: atrPct(bars),
-    drift24h: drift(bars, 24),
+    why: str("why", "Stop is 1.5x the 1h ATR from entry, targets are 1R, 2R and 3R off that risk."),
+    structure: str("structure"),
+    positioning: str("positioning"),
+    bullCase: str("bullCase"),
+    bearCase: str("bearCase"),
+    confirmation: str("confirmation"),
+    invalidation: str("invalidation", "Price closing beyond the stop on the 1h chart."),
+    watch: list("watch1", "watch2", "watch3"),
+    risks: list("risk1", "risk2", "risk3"),
+    market,
+    // Leverage is not a dial you pick, it falls out of the stop you chose.
+    sizing: [0.5, 1, 2].map((riskPct) => ({
+      riskPct,
+      leverage: impliedLeverage(riskPct, stopPct),
+    })),
     model: reply.model,
     degraded: Boolean(reply.error) || !parsed,
     error: reply.error,

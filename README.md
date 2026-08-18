@@ -94,7 +94,8 @@ to pay for.
 | Every account's lifetime, month, week and day profit and return | `GET stats-data.hyperliquid.xyz/Mainnet/leaderboard` (about 35 MB, roughly 42,000 accounts) |
 | One account's open positions | `POST api.hyperliquid.xyz/info` with `clearinghouseState` |
 | Live prices | `POST api.hyperliquid.xyz/info` with `allMids` |
-| Recent candles, for volatility | `POST api.hyperliquid.xyz/info` with `candleSnapshot` |
+| Recent candles, for volatility and support/resistance | `POST api.hyperliquid.xyz/info` with `candleSnapshot` |
+| Funding, open interest and 24h volume | `POST api.hyperliquid.xyz/info` with `metaAndAssetCtxs` |
 
 The leaderboard is what makes "profitable over the long run" something you can
 actually check instead of assume. The positions endpoint is what makes the
@@ -120,8 +121,25 @@ downstream works without changes.
 
 Two panels, both running on Groq with `openai/gpt-oss-120b`.
 
-**Desk read** is inside each coin's detail view. It writes a short read on the
-instrument and gives entry, stop, and three take profit levels.
+**Desk read** is inside each coin's detail view. It is meant to be the whole
+note in one screen, so it is dense on purpose:
+
+- A one line thesis, plus conviction and how long the idea is supposed to last
+- Entry, stop and three targets, each with the distance in percent and in R
+- What leverage that stop implies if you risk 0.5%, 1% or 2% of your account,
+  next to the venue's own cap. Leverage is not a dial you pick, it falls out of
+  the stop you chose
+- Where price sits: 24h, 7d and 30d drift, position in the 7 day range, and the
+  nearest real support and resistance
+- The book: funding rate (and whether your side collects it or pays it), open
+  interest, and 24h volume against that open interest
+- The bull case and the bear case side by side, what would confirm the idea,
+  what would kill it, and short things to watch
+
+Support and resistance come from pivot highs and lows, filtered so anything
+closer than one ATR is ignored. Without that filter the "nearest level" over a
+month of hourly candles is always a fraction of a percent away, which is just
+the current price with extra steps.
 
 The important design decision here: **the code does the maths, not the model.**
 Ask any language model for a stop loss and it will give you a confident round

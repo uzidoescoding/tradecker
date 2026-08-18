@@ -174,6 +174,69 @@ export function parseBook(address: string, raw: RawState): Book {
   return { address, accountValue: num(raw.marginSummary?.accountValue), positions };
 }
 
+/* ----------------------------------------------------------------- contexts */
+
+export type AssetCtx = {
+  coin: string;
+  /** Hourly funding rate as a decimal. Positive means longs pay shorts. */
+  funding: number;
+  /** Open interest in base units. */
+  openInterest: number;
+  /** Open interest in USD, which is the number anyone actually compares. */
+  openInterestUsd: number;
+  dayNotionalVolume: number;
+  prevDayPx: number;
+  markPx: number;
+  oraclePx: number;
+  /** Mark against oracle. A stretched premium is crowding you can measure. */
+  premium: number;
+  maxLeverage: number;
+};
+
+type RawCtx = {
+  funding: string;
+  openInterest: string;
+  prevDayPx: string;
+  dayNtlVlm: string;
+  premium: string | null;
+  oraclePx: string;
+  markPx: string;
+};
+
+/**
+ * Funding, open interest and 24h volume for every perp, in one request.
+ *
+ * Funding is the piece the position data cannot tell you: it is what the trade
+ * costs to hold, and which way the rest of the venue is leaning. A short that
+ * collects funding and a short that bleeds it are different trades.
+ */
+export const assetContexts = memo(30_000, async () => {
+  const [meta, ctxs] = await info<[{ universe: { name: string; maxLeverage: number }[] }, RawCtx[]]>(
+    { type: "metaAndAssetCtxs" },
+    30,
+  );
+  const out: Record<string, AssetCtx> = {};
+  meta.universe.forEach((asset, i) => {
+    const c = ctxs[i];
+    if (!c) return;
+    const oi = num(c.openInterest);
+    const mark = num(c.markPx);
+    out[asset.name] = {
+      coin: asset.name,
+      funding: num(c.funding),
+      openInterest: oi,
+      openInterestUsd: oi * mark,
+      dayNotionalVolume: num(c.dayNtlVlm),
+      prevDayPx: num(c.prevDayPx),
+      markPx: mark,
+      oraclePx: num(c.oraclePx),
+      premium: num(c.premium),
+      maxLeverage: asset.maxLeverage,
+    };
+  });
+  return out;
+});
+
 /* ------------------------------------------------------------------ candles */
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
